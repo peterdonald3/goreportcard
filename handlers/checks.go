@@ -10,8 +10,8 @@ import (
 
 	badger "github.com/dgraph-io/badger/v2"
 	humanize "github.com/dustin/go-humanize"
-	"github.com/gojp/goreportcard/check"
-	"github.com/gojp/goreportcard/download"
+	"github.com/goreportcard/check"
+	"github.com/goreportcard/download"
 )
 
 type notFoundError struct {

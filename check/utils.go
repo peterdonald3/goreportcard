@@ -332,6 +332,7 @@ outer:
 // GoTool runs a given go command (for example gofmt, go tool vet)
 // on a directory
 func GoTool(dir string, filenames, command []string) (float64, []FileSummary, error) {
+	fmt.Println("dir", dir)
 	// temporary disabling of misspell as it's the slowest
 	// command right now
 	if strings.Contains(command[len(command)-1], "misspell") && len(filenames) > 300 {
@@ -345,27 +346,34 @@ func GoTool(dir string, filenames, command []string) (float64, []FileSummary, er
 	}
 
 	params := command[1:]
-	params = addSkipDirs(params)
+	if !strings.Contains(command[0], "golangci-lint") {
+		params = addSkipDirs(params)
+	}
 
 	if strings.Contains(command[len(command)-1], "cyclo") {
+		params = append(params, dir)
+	} else if strings.Contains(command[0], "golangci-lint") {
 		params = append(params, dir)
 	} else {
 		params = append(params, dir+"/...")
 	}
-
+	fmt.Println("command[0], params...", command[0], params)
 	cmd := exec.Command(command[0], params...)
 	stdout, err := cmd.StdoutPipe()
+	fmt.Println("stdout --- ", stdout)
 	if err != nil {
+		fmt.Println("error happening here 1 ")
 		return 0, []FileSummary{}, err
 	}
 
 	err = cmd.Start()
 	if err != nil {
+		fmt.Println("error happening here 2 ")
 		return 0, []FileSummary{}, err
 	}
 
 	out := bufio.NewScanner(stdout)
-
+	fmt.Println("out ---", out.Bytes())
 	// the same file can appear multiple times out of order
 	// in the output, so we can't go line by line, have to store
 	// a map of filename to FileSummary
@@ -373,10 +381,12 @@ func GoTool(dir string, filenames, command []string) (float64, []FileSummary, er
 
 	fsMap, err := getFileSummaryMap(out, dir)
 	if err != nil {
+		fmt.Println("error happening here 3 ")
 		return 0, []FileSummary{}, err
 	}
 
 	if err := out.Err(); err != nil {
+		fmt.Println("error happening here 4 ")
 		return 0, []FileSummary{}, err
 	}
 
@@ -384,15 +394,15 @@ func GoTool(dir string, filenames, command []string) (float64, []FileSummary, er
 		failed = append(failed, v)
 	}
 
-	err = cmd.Wait()
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		// The program has exited with an exit code != 0
-
-		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-			// some commands exit 1 when files fail to pass (for example go vet)
-			if status.ExitStatus() != 1 {
-				return 0, failed, err
-				// return 0, Error{}, err
+	if err := cmd.Wait(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			fmt.Printf("Exit code is %d\n", exitErr.ExitCode())
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				// some commands exit 1 when files fail to pass (for example go vet)
+				if status.ExitStatus() != 1 {
+					return 0, failed, err
+					// return 0, Error{}, err
+				}
 			}
 		}
 	}

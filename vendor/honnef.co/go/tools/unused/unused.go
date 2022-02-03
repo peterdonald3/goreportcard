@@ -137,7 +137,7 @@ var Debug io.Writer
 
 - (11.1) anonymous struct types use all their fields. we cannot
   deduplicate struct types, as that leads to order-dependent
-  reportings. we can't not deduplicate struct types while still
+  reports. we can't not deduplicate struct types while still
   tracking fields, because then each instance of the unnamed type in
   the data flow chain will get its own fields, causing false
   positives. Thus, we only accurately track fields of named struct
@@ -415,12 +415,17 @@ type SerializedResult struct {
 	Unused []SerializedObject
 }
 
-var Analyzer = &analysis.Analyzer{
-	Name:       "U1000",
-	Doc:        "Unused code",
-	Run:        run,
-	Requires:   []*analysis.Analyzer{buildir.Analyzer, facts.Generated, facts.Directives},
-	ResultType: reflect.TypeOf(Result{}),
+var Analyzer = &lint.Analyzer{
+	Doc: &lint.Documentation{
+		Title: "Unused code",
+	},
+	Analyzer: &analysis.Analyzer{
+		Name:       "U1000",
+		Doc:        "Unused code",
+		Run:        run,
+		Requires:   []*analysis.Analyzer{buildir.Analyzer, facts.Generated, facts.Directives},
+		ResultType: reflect.TypeOf(Result{}),
+	},
 }
 
 type SerializedObject struct {
@@ -1201,6 +1206,17 @@ func (g *graph) entry(pkg *pkg) {
 
 					// use methods and fields of ignored types
 					if obj, ok := obj.(*types.TypeName); ok {
+						if obj.IsAlias() {
+							if typ, ok := obj.Type().(*types.Named); ok && typ.Obj().Pkg() != obj.Pkg() {
+								// This is an alias of a named type in another package.
+								// Don't walk its fields or methods; we don't have to,
+								// and it breaks an assertion in graph.use because we're using an object that we haven't seen before.
+								//
+								// For aliases to types in the same package, we do want to ignore the fields and methods,
+								// because ignoring the alias should ignore the aliased type.
+								continue
+							}
+						}
 						if typ, ok := obj.Type().(*types.Named); ok {
 							for i := 0; i < typ.NumMethods(); i++ {
 								g.use(typ.Method(i), nil, edgeIgnored)
@@ -1548,7 +1564,7 @@ func (g *graph) instructions(fn *ir.Function) {
 			case *ir.Slice:
 				// nothing to do, handled generically by operands
 			case *ir.RunDefers:
-				// nothing to do, the deferred functions are already marked use by defering them.
+				// nothing to do, the deferred functions are already marked use by deferring them.
 			case *ir.Convert:
 				// to unsafe.Pointer
 				if typ, ok := instr.Type().(*types.Basic); ok && typ.Kind() == types.UnsafePointer {
@@ -1645,8 +1661,10 @@ func (g *graph) instructions(fn *ir.Function) {
 				// nothing to do
 			case *ir.ConstantSwitch:
 				// nothing to do
+			case *ir.SliceToArrayPointer:
+				// nothing to do
 			default:
-				panic(fmt.Sprintf("unreachable: %T", instr))
+				lint.ExhaustiveTypeSwitch(instr)
 			}
 		}
 	}
